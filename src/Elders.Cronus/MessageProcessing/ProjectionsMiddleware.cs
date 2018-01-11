@@ -4,4 +4,9 @@
     {
         public ProjectionsMiddleware(IHandlerFactory factory) : base(factory) { }
     }
+
+    public class ClusterMiddleware : MessageHandlerMiddleware
+    {
+        public ClusterMiddleware(IHandlerFactory factory) : base(factory) { }
+    }
 }

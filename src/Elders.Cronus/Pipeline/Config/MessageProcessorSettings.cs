@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Elders.Cronus.Cluster;
+using Elders.Cronus.Cluster.Config;
 using Elders.Cronus.IocContainer;
 using Elders.Cronus.MessageProcessing;
 using Elders.Cronus.Middleware;
@@ -150,6 +152,43 @@ namespace Elders.Cronus.Pipeline.Config
         }
     }
 
+    public class ClusterServiceMessageProcessorSettings : SettingsBuilder, ISubscrptionMiddlewareSettings
+    {
+        public ClusterServiceMessageProcessorSettings(ISettingsBuilder builder) : base(builder)
+        {
+            (this as ISubscrptionMiddlewareSettings).HandleMiddleware = (x) => x;
+        }
+
+        List<Type> ISubscrptionMiddlewareSettings.HandlerRegistrations { get; set; }
+
+        Func<Type, object> ISubscrptionMiddlewareSettings.HandlerFactory { get; set; }
+
+        Func<Middleware<HandleContext>, Middleware<HandleContext>> ISubscrptionMiddlewareSettings.HandleMiddleware { get; set; }
+
+        public override void Build()
+        {
+            var builder = this as ISettingsBuilder;
+            var processorSettings = this as ISubscrptionMiddlewareSettings;
+            Func<SubscriptionMiddleware> messageHandlerProcessorFactory = () =>
+            {
+                var handlerFactory = new DefaultHandlerFactory(processorSettings.HandlerFactory);
+
+                var clusterServiceMiddleware = new ClusterMiddleware(handlerFactory);
+                var middleware = processorSettings.HandleMiddleware(clusterServiceMiddleware);
+                var subscriptionMiddleware = new SubscriptionMiddleware();
+                var clusterSettings = builder.Container.Resolve<IClusterSettings>();
+                string nodeId = $"{clusterSettings.CurrentNodeName}@{clusterSettings.ClusterName}";
+                foreach (var reg in (this as ISubscrptionMiddlewareSettings).HandlerRegistrations)
+                {
+                    if (typeof(IClusterService).IsAssignableFrom(reg))
+                        subscriptionMiddleware.Subscribe(new ClusterSubscriber(reg, middleware, nodeId));
+                }
+                return subscriptionMiddleware;
+            };
+            builder.Container.RegisterSingleton<SubscriptionMiddleware>(() => messageHandlerProcessorFactory(), builder.Name);
+        }
+    }
+
     public static class MessageProcessorSettingsExtensions
     {
         public static T UseProjections<T>(this T self, Action<ProjectionMessageProcessorSettings> configure) where T : ProjectionConsumerSettings
@@ -185,6 +224,16 @@ namespace Elders.Cronus.Pipeline.Config
         public static T UseApplicationServices<T>(this T self, Action<ApplicationServiceMessageProcessorSettings> configure) where T : IConsumerSettings<ICommand>
         {
             ApplicationServiceMessageProcessorSettings settings = new ApplicationServiceMessageProcessorSettings(self);
+            if (configure != null)
+                configure(settings);
+
+            (settings as ISettingsBuilder).Build();
+            return self;
+        }
+
+        public static T UseClusterServices<T>(this T self, Action<ClusterServiceMessageProcessorSettings> configure) where T : ClusterConsumerSettings
+        {
+            ClusterServiceMessageProcessorSettings settings = new ClusterServiceMessageProcessorSettings(self);
             if (configure != null)
                 configure(settings);
 

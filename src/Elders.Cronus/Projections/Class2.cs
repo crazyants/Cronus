@@ -31,18 +31,15 @@ namespace Elders.Cronus.Projections.Cassandra.EventSourcing
             if (cronusMessage.Payload is IEvent)
             {
                 Type projectionType = execution.Context.HandlerType;
-                var projection = FastActivator.CreateInstance(projectionType) as IProjectionDefinition;
-
-                if (projection != null)
-                    repository.Save(cronusMessage, projectionType);
+                repository.Save(cronusMessage, projectionType);
             }
         }
     }
 
     public interface IProjectionVersionResolver
     {
-        IEnumerable<ProjectionVersion> GetVersions(Type projectionType);
-        IEnumerable<ProjectionVersion> GetVersions(string projectionName);
+        ProjectionVersions GetVersions(Type projectionType);
+        ProjectionVersions GetVersions(string projectionName);
     }
 
     public class ProjectionRepository : IProjectionRepository
@@ -100,7 +97,7 @@ namespace Elders.Cronus.Projections.Cassandra.EventSourcing
                     EventOrigin eventOrigin = cronusMessage.GetEventOrigin();
                     DateTime timestamp = DateTime.UtcNow;
                     IEvent @event = cronusMessage.Payload as IEvent;
-                    foreach (var version in versionResolver.GetVersions(projectionType))
+                    foreach (var version in versionResolver.GetVersions(projectionType).Versions)
                     {
                         var commit = new ProjectionCommit(projectionId, version, @event, snapshotMarker, eventOrigin, timestamp);
                         projectionStore.Save(commit);

@@ -5,13 +5,82 @@ using System.Linq;
 
 namespace Elders.Cronus.Projections
 {
+    [DataContract(Name = "fe1b2668-75e4-4b29-b2b0-b1db2c10a685")]
+    public class ProjectionVersions
+    {
+        public ProjectionVersions()
+        {
+            Versions = new HashSet<ProjectionVersion>();
+        }
+
+        [DataMember(Order = 1)]
+        public HashSet<ProjectionVersion> Versions { get; private set; }
+
+        public void Add(ProjectionVersion version)
+        {
+            if (version.Status == ProjectionStatus.Canceled)
+            {
+                var versionInBuild = Versions.Where(x => x == version.WithStatus(ProjectionStatus.Building)).SingleOrDefault();
+                if (Versions.Remove(versionInBuild))
+                    Versions.Add(version);
+            }
+            else
+            {
+                Versions.Add(version);
+            }
+        }
+
+        public ProjectionVersion GetLatest()
+        {
+            return Versions.Where(x => x.VersionNumber == Versions.Max(ver => ver.VersionNumber)).SingleOrDefault();
+        }
+
+        public int GetNextVersionNumber()
+        {
+            return GetLatest().VersionNumber + 1;
+        }
+
+        public ProjectionVersion GetLive()
+        {
+            return Versions.Where(x => x.Status == ProjectionStatus.Live).SingleOrDefault();
+        }
+    }
+
+    public class ProjectionVersionHandler : ProjectionDefinition<ProjectionVersions, ProjectionArId>,
+        IEventHandler<ReplayProjectionStarted>,
+        IEventHandler<ReplayProjectionFinished>,
+        IEventHandler<ReplayProjectionCanceled>
+    {
+        ProjectionVersionHandler()
+        {
+            Subscribe<ReplayProjectionStarted>(x => x.Id);
+            Subscribe<ReplayProjectionFinished>(x => x.Id);
+            Subscribe<ReplayProjectionCanceled>(x => x.Id);
+        }
+
+        public void Handle(ReplayProjectionStarted @event)
+        {
+            State.Add(@event.ProjectionVersion);
+        }
+
+        public void Handle(ReplayProjectionCanceled @event)
+        {
+            State.Add(@event.ProjectionVersion);
+        }
+
+        public void Handle(ReplayProjectionFinished @event)
+        {
+            State.Add(@event.ProjectionVersion);
+        }
+    }
+
     public class ProjectionAR : AggregateRoot<ProjectionArState>
     {
         public void Replay()
         {
             if (CanReplay())
             {
-                var projectionVersion = new ProjectionVersion(state.ProjectionName, ProjectionStatus.Building, state.NextVersionNumber);
+                var projectionVersion = new ProjectionVersion(state.ProjectionName, ProjectionStatus.Building, state.All.GetNextVersionNumber());
                 var @event = new ReplayProjectionStarted(state.Id, projectionVersion);
                 Apply(@event);
             }
@@ -21,20 +90,20 @@ namespace Elders.Cronus.Projections
         {
             if (CanCancel())
             {
-                var projectionVersion = state.Versions.Where(x => x.Status == ProjectionStatus.Building).Single();
-                var @event = new ReplayProjectionCanceled(state.Id, projectionVersion);
+                var projectionVersion = state.All.Versions.Where(x => x.Status == ProjectionStatus.Building).Single();
+                var @event = new ReplayProjectionCanceled(state.Id, projectionVersion.WithStatus(ProjectionStatus.Canceled));
                 Apply(@event);
             }
         }
 
         bool CanCancel()
         {
-            return state.Versions.Any(x => x.Status == ProjectionStatus.Building);
+            return state.All.Versions.Any(x => x.Status == ProjectionStatus.Building);
         }
 
         bool CanReplay()
         {
-            return state.Versions.Any(x => x.Status == ProjectionStatus.Building) == false;
+            return state.All.Versions.Any(x => x.Status == ProjectionStatus.Building) == false;
         }
     }
 
@@ -42,41 +111,28 @@ namespace Elders.Cronus.Projections
     {
         public ProjectionArState()
         {
-            Versions = new HashSet<ProjectionVersion>();
+            All = new ProjectionVersions();
         }
 
         public override ProjectionArId Id { get; set; }
 
-        public HashSet<ProjectionVersion> Versions { get; set; }
+        public ProjectionVersions All { get; set; }
 
-        public ProjectionVersion Live { get { return Versions.Where(x => x.Status == ProjectionStatus.Live).SingleOrDefault(); } }
-
-        public string ProjectionName { get { return Versions.First().ProjectionName; } }
-
-        public ProjectionVersion LatestVersion { get { return Versions.Where(x => x.VersionNumber == Versions.Max(ver => ver.VersionNumber)).SingleOrDefault(); } }
-
-        public int NextVersionNumber { get { return LatestVersion.VersionNumber + 1; } }
+        public string ProjectionName { get { return All.Versions.First().ProjectionName; } }
 
         public void When(ReplayProjectionCanceled e)
         {
-            if (Versions.Remove(e.ProjectionVersion))
-            {
-                var canceledVersion = e.ProjectionVersion.WithStatus(ProjectionStatus.Canceled);
-                Versions.Add(canceledVersion);
-            }
+            All.Add(e.ProjectionVersion);
         }
 
         public void When(ReplayProjectionStarted e)
         {
-            Versions.Add(e.ProjectionVersion);
+            All.Add(e.ProjectionVersion);
         }
 
         public void When(ReplayProjectionFinished e)
         {
-            if (Versions.RemoveWhere(x => x.Status == ProjectionStatus.Building) > 0)
-            {
-                Versions.Add(e.ProjectionVersion);
-            }
+            All.Add(e.ProjectionVersion);
         }
     }
 
@@ -106,6 +162,8 @@ namespace Elders.Cronus.Projections
 
         public override bool Equals(ProjectionVersion other)
         {
+            if (ReferenceEquals(null, other)) return false;
+
             return VersionNumber == other.VersionNumber;
         }
 

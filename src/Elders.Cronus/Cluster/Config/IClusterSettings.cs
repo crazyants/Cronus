@@ -1,24 +1,29 @@
 ﻿using System;
 using Elders.Cronus.Pipeline.Config;
 using Elders.Cronus.Pipeline.Hosts;
+using Elders.Cronus.Projections.Cassandra.EventSourcing;
 
 namespace Elders.Cronus.Cluster.Config
 {
     public interface IClusterSettings : ISettingsBuilder
     {
         string ClusterName { get; set; }
+        string CurrentNodeName { get; set; }
     }
 
     public class ClusterSettings : SettingsBuilder, IClusterSettings
     {
-        public ClusterSettings(ISettingsBuilder settingsBuilder) : base(settingsBuilder)
-        {
-        }
+        public ClusterSettings(ISettingsBuilder settingsBuilder) : base(settingsBuilder) { }
 
-        string IClusterSettings.ClusterName { get; set; }
+        public string ClusterName { get; set; }
+
+        public string CurrentNodeName { get; set; }
 
         public override void Build()
         {
+            var builder = this as ISettingsBuilder;
+            builder.Container.RegisterSingleton(typeof(IClusterSettings), () => this, null);
+            builder.Container.RegisterSingleton(typeof(IProjectionVersionResolver), () => new InMemoryProjectionVersionResolver(new InMemoryProjectionVersionStore()));
         }
     }
 

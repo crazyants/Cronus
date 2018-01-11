@@ -66,6 +66,13 @@ namespace Elders.Cronus.Pipeline.Config
         public SagaConsumerSettings(ISettingsBuilder settingsBuilder, string name) : base(settingsBuilder, name) { }
     }
 
+    public class ClusterConsumerSettings : PipelineConsumerSettings<IEvent>
+    {
+        public ClusterConsumerSettings(ISettingsBuilder settingsBuilder, string name) : base(settingsBuilder, name)
+        {
+        }
+    }
+
     public static class ConsumerSettingsExtensions
     {
         public static T SetNumberOfConsumerThreads<T>(this T self, int numberOfConsumers) where T : IConsumerSettings
@@ -124,6 +131,20 @@ namespace Elders.Cronus.Pipeline.Config
         public static T UseSagaConsumer<T>(this T self, string name, Action<SagaConsumerSettings> configure = null) where T : ICronusSettings
         {
             SagaConsumerSettings settings = new SagaConsumerSettings(self, name);
+            if (configure != null)
+                configure(settings);
+            (settings as ISettingsBuilder).Build();
+            return self;
+        }
+
+        public static T UseClusterConsumer<T>(this T self, Action<ClusterConsumerSettings> configure = null) where T : ICronusSettings
+        {
+            return UseClusterConsumer(self, "Cluster", configure);
+        }
+
+        public static T UseClusterConsumer<T>(this T self, string name, Action<ClusterConsumerSettings> configure = null) where T : ICronusSettings
+        {
+            ClusterConsumerSettings settings = new ClusterConsumerSettings(self, name);
             if (configure != null)
                 configure(settings);
             (settings as ISettingsBuilder).Build();
